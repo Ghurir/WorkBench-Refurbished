@@ -66,11 +66,14 @@ function load(){
   if(migrated)save();
 }
 function parseCostLines(text){
-  return String(text||'').split(/\\n|,/).map(x=>x.trim()).filter(Boolean).map(line=>{
-    const m=line.match(/^(.*?)\\s*[-–—:]?\\s*([$€£]?\\s*\\d+(?:[.,]\\d{1,2})?)\\s*$/);
-    if(!m)return {id:id(),name:line,cost:0};
-    return {id:id(),name:m[1].trim()||'Repair',cost:m[2].replace(',','').replace(/[^0-9.]/g,'')};
-  });
+    let lines = String(text||'').split(/\n|,/);
+    lines = lines.map(line=>line.trim());
+    return lines.map(line=>{
+    const m=line.split('|');
+    let cost = 0;
+    if(m) cost = Number(m[1].trim());
+    return {id:id(),name:m[0].trim()||'Repair',"cost":cost};
+  })
 }
 function log(text,type='system'){
   state.activity.unshift({id:id(),text,type,ts:nowISO()});
@@ -285,7 +288,6 @@ function renderEditor(){
       <div class="scenario-add">
         <input class="input" id="sc-name" placeholder="Scenario name">
         <input class="input" id="sc-sale" type="number" step="0.01" placeholder="Expected sale">
-        <select class="input" id="sc-risk"><option>Low</option><option>Medium</option><option>High</option></select>
         <input class="input" id="sc-hours" type="number" step="0.1" min="0" placeholder="Hours">
       </div>
       <textarea class="input" id="sc-items" style="margin-top:6px;min-height:66px" placeholder="One repair per line: Back glass | 33&#10;Bezels | 20&#10;Battery | 40"></textarea>
@@ -313,7 +315,7 @@ function scenarioHTML(s,i){
       <div><div class="k">Sale</div><div class="v">${money(s.expectedSale)}</div></div>
       <div><div class="k">Investment</div><div class="v">${money(inv)}</div></div>
       <div><div class="k">Profit</div><div class="v ${p>=0?'ok':'bad'}">${moneySigned(p)}</div></div>
-      <div><div class="k">ROI / Risk</div><div class="v">${roi(p,inv).toFixed(1)}% · ${esc(s.risk||'Medium')}</div></div>
+      <div><div class="k">ROI</div><div class="v">${roi(p,inv).toFixed(1)}</div></div>
     </div>
   </div>`;
 }
@@ -345,10 +347,9 @@ function addScenario(){
   syncDraft();
   const name=document.getElementById('sc-name')?.value.trim()||'Scenario '+((draft.scenarios||[]).length+1);
   const sale=document.getElementById('sc-sale')?.value||0;
-  const risk=document.getElementById('sc-risk')?.value||'Medium';
   const hours=document.getElementById('sc-hours')?.value||0;
   const items=parseCostLines(document.getElementById('sc-items')?.value||'');
-  draft.scenarios.push({id:id(),name,expectedSale:sale,risk,hours,items});
+  draft.scenarios.push({id:id(),name,expectedSale:sale,hours,items});
   log(`${deviceLabel(draft)}: added scenario “${name}”`,'scenario');renderEditor();
 }
 function removeScenario(i){syncDraft();draft.scenarios.splice(i,1);renderEditor()}

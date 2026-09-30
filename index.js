@@ -1,10 +1,8 @@
 const KEY='wb_refurb_simple_v1';
-const LEGACY='wb_legacy_backup_v1';
 const CONFIG={maxActivity:80};
 const STATUSES=[
   {id:'inbox',label:'Inbox / Inventory',badge:'b-inbox'},
   {id:'repair',label:'Repair',badge:'b-repair'},
-  {id:'waiting',label:'Waiting',badge:'b-waiting'},
   {id:'sale',label:'For Sale',badge:'b-sale'},
   {id:'sold',label:'Sold',badge:'b-sold'}
 ];
@@ -39,13 +37,15 @@ const statusLabel=s=>statusObj(s).label;
 
 function blankDevice(){
   return {id:id(),name:'',brand:'',model:'',serial:'',condition:'Good',
-    purchaseCost:'',acquired:today(),status:'inbox',parts:[],expectedSale:'',
+    purchaseCost:'',acquired:today(),status:'inbox',waiting:false,parts:[],expectedSale:'',
     laborHours:'',laborRate:'',saleFees:'',salePrice:'',soldAt:'',
     waitingFor:'',notes:'',checklist:[],scenarios:[],createdAt:today(),updatedAt:nowISO()};
 }
 function normalizeDevice(d){
-  return {...blankDevice(),...d,id:d.id||id(),parts:Array.isArray(d.parts)?d.parts:[],
+  const normalized={...blankDevice(),...d,id:d.id||id(),parts:Array.isArray(d.parts)?d.parts:[],
     checklist:Array.isArray(d.checklist)?d.checklist:[],scenarios:Array.isArray(d.scenarios)?d.scenarios:[]};
+  normalized.waiting=Boolean(normalized.waiting);
+  return normalized;
 }
 function normalize(){
   state.devices=(Array.isArray(state.devices)?state.devices:[]).map(normalizeDevice);
@@ -60,38 +60,10 @@ function load(){
   try{
     const raw=localStorage.getItem(KEY);
     if(raw){state={...state,...JSON.parse(raw)}}
-    else{
-      const legacy=localStorage.getItem('wb_data');
-      if(legacy){
-        const old=JSON.parse(legacy);
-        localStorage.setItem(LEGACY,legacy);
-        state.devices=migrateLegacy(old);
-        state.activity.unshift({text:'Imported old Workbench data into the simplified refurb board. Review device statuses.',ts:nowISO(),type:'system'});
-        migrated=true;
-      }
-    }
   }catch(e){console.warn(e)}
   normalize();
   document.documentElement.dataset.theme=state.settings.theme;
   if(migrated)save();
-}
-function migrateLegacy(old){
-  const out=[];
-  (old?.forSale||[]).forEach(s=>{
-    const parts=parseCostLines(s.upgrades);
-    out.push(normalizeDevice({id:s.id||id(),name:[s.brand,s.model].filter(Boolean).join(' '),
-      brand:s.brand||'',model:s.model||'',condition:s.condition||'',purchaseCost:s.purchasePrice||'',
-      expectedSale:s.sellingPrice||'',parts,notes:s.notes||'',status:s.status==='Sold'?'sold':(s.status==='Listed'?'sale':'inbox'),
-      acquired:s.listed||today(),salePrice:s.status==='Sold'?s.sellingPrice||'':'',soldAt:s.status==='Sold'?today():'',
-      updatedAt:s.updatedAt||nowISO()}));
-  });
-  (old?.repairs||[]).forEach(r=>{
-    const st=r.status==='Waiting Parts'?'waiting':r.status==='In Progress'?'repair':'inbox';
-    out.push(normalizeDevice({id:r.id||id(),name:[r.brand,r.model].filter(Boolean).join(' ')||r.deviceType||'Repair',
-      brand:r.brand||'',model:r.model||'',serial:r.serial||'',status:st,waitingFor:r.partsNeeded||'',
-      notes:[r.issue,r.notes].filter(Boolean).join('\\n\\n'),acquired:r.created||today(),updatedAt:r.updatedAt||nowISO()}));
-  });
-  return out;
 }
 function parseCostLines(text){
   return String(text||'').split(/\\n|,/).map(x=>x.trim()).filter(Boolean).map(line=>{
@@ -135,6 +107,7 @@ function render(){
   const q=(state.search||'').toLowerCase().trim();
   const devices=state.devices.filter(d=>!q||[deviceLabel(d),d.serial,d.condition,d.status,d.waitingFor,d.notes].some(v=>String(v||'').toLowerCase().includes(q)));
   const counts=Object.fromEntries(STATUSES.map(s=>[s.id,devices.filter(d=>d.status===s.id).length]));
+  const waitingCount=devices.filter(d=>d.waiting).length;
   const active=state.devices.filter(d=>d.status!=='sold');
   const invested=active.reduce((s,d)=>s+investment(d),0);
   const expProfit=active.reduce((s,d)=>s+expectedProfit(d),0);
@@ -149,9 +122,18 @@ function render(){
         ${stat('Expected Profit',moneySigned(expProfit),expProfit>=0?'ok':'warn')}
         ${stat('For Sale',counts.sale||0,'accent')}
         ${stat('In Repair',counts.repair||0,'info')}
-        ${stat('Waiting',counts.waiting||0,'warn')}
+        ${stat('Waiting',waitingCount,'warn')}
         ${stat('Sold Profit',moneySigned(soldProfit),soldProfit>=0?'ok':'warn')}
       </div>
+      <section class="panel">
+          <h3>Business Snapshot</h3>
+          <div class="report-grid">
+            <div class="report-box"><div class="l">Devices</div><div class="v">${state.devices.length}</div></div>
+            <div class="report-box"><div class="l">Sale Value</div><div class="v">${money(forSaleValue)}</div></div>
+            <div class="report-box"><div class="l">Realized Profit</div><div class="v ${soldProfit>=0?'ok':'bad'}">${moneySigned(soldProfit)}</div></div>
+            <div class="report-box"><div class="l">Avg Sold ROI</div><div class="v">${sold.length?avgRoi.toFixed(1):'0.0'}%</div></div>
+          </div>
+      </section>
       <div class="board-wrap">
         <div class="section-head">
           <h2>Device Board</h2>
@@ -162,15 +144,6 @@ function render(){
         </div>
       </div>
       <div class="bottom-grid">
-        <section class="panel">
-          <h3>Business Snapshot</h3>
-          <div class="report-grid">
-            <div class="report-box"><div class="l">Devices</div><div class="v">${state.devices.length}</div></div>
-            <div class="report-box"><div class="l">Sale Value</div><div class="v">${money(forSaleValue)}</div></div>
-            <div class="report-box"><div class="l">Realized Profit</div><div class="v ${soldProfit>=0?'ok':'bad'}">${moneySigned(soldProfit)}</div></div>
-            <div class="report-box"><div class="l">Avg Sold ROI</div><div class="v">${sold.length?avgRoi.toFixed(1):'0.0'}%</div></div>
-          </div>
-        </section>
         <section class="panel">
           <h3>Activity & Notes</h3>
           <div class="activity">
@@ -193,14 +166,14 @@ function deviceCardHTML(d){
   const inv=investment(d);
   const age=ageDays(d);
   return `<article class="card" draggable="true" ondragstart="startDrag(event,'${d.id}')" ondragend="endDrag(this)" onclick="openDevice('${d.id}')">
-    <div class="card-title"><div><strong>${esc(deviceLabel(d))}</strong><div class="meta">${esc(d.serial||d.condition||'')}</div></div><span class="badge ${statusObj(d.status).badge}">${statusLabel(d.status)}</span></div>
+    <div class="card-title"><div><strong>${esc(deviceLabel(d))}</strong><div class="meta">${esc(d.serial||d.condition||'')}</div></div><div class="badges"><span class="badge ${statusObj(d.status).badge}">${statusLabel(d.status)}</span>${d.waiting?'<span class="badge b-waiting">Waiting</span>':''}</div></div>
     <div class="money-grid">
       <div class="money-box"><span class="k">Buy</span><span class="n">${money(d.purchaseCost)}</span></div>
       <div class="money-box"><span class="k">Repairs</span><span class="n">${money(partsCost(d)+laborCost(d))}</span></div>
       <div class="money-box"><span class="k">${d.status==='sold'?'Sold':'Expected'}</span><span class="n">${money(sale)}</span></div>
     </div>
     <div class="profit"><span class="${p>=0?'ok':'bad'}">${d.status==='sold'?'Actual':'Expected'} ${p>=0?'profit':'loss'}</span><span class="${p>=0?'ok':'bad'}">${moneySigned(p)}</span></div>
-    <div class="card-foot"><span>${d.status==='waiting'&&d.waitingFor?esc(d.waitingFor):`${age} day${age===1?'':'s'} in business`}</span><span>${d.status==='sold'?roi(actualProfit(d),inv).toFixed(1):roi(expectedProfit(d),inv).toFixed(1)}% ROI</span></div>
+    <div class="card-foot"><span>${d.waiting&&d.waitingFor?esc(d.waitingFor):`${age} day${age===1?'':'s'} in business`}</span><span>${d.status==='sold'?roi(actualProfit(d),inv).toFixed(1):roi(expectedProfit(d),inv).toFixed(1)}% ROI</span></div>
   </article>`;
 }
 function rel(ts){
@@ -232,9 +205,9 @@ function openDevice(did){
   renderEditor();
 }
 function closeModal(){document.getElementById('overlay').style.display='none';document.getElementById('overlay').innerHTML='';editorId=null;draft=null;saleId=null}
-function toggleWaitingField(status){
-  const el=document.getElementById('waiting-field');
-  if(el)el.style.display=status==='waiting'?'':'none';
+function toggleWaitingField(checked){
+  const el=document.getElementById('waiting-for-wrap');
+  if(el)el.style.display=checked?'':'none';
 }
 function syncDraft(){
   if(!draft)return;
@@ -244,6 +217,7 @@ function syncDraft(){
   draft.serial=document.getElementById('e-serial')?.value||'';
   draft.condition=document.getElementById('e-condition')?.value||'';
   draft.status=document.getElementById('e-status')?.value||'inbox';
+  draft.waiting=Boolean(document.getElementById('e-waiting-check')?.checked);
   draft.purchaseCost=document.getElementById('e-purchase')?.value||'';
   draft.acquired=document.getElementById('e-acquired')?.value||today();
   draft.expectedSale=document.getElementById('e-sale')?.value||'';
@@ -272,7 +246,7 @@ function renderEditor(){
     <div class="modal-head"><h2>${editorId?'Edit device':'New device'}</h2><button class="close" onclick="closeModal()">×</button></div>
     <div class="form-grid">
       <div><label>Name</label><input class="input" id="e-name" value="${esc(draft.name)}" placeholder="Phone 14 Pro"></div>
-      <div><label>Status</label><select class="input" id="e-status" onchange="toggleWaitingField(this.value)">${STATUSES.map(s=>`<option value="${s.id}" ${draft.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
+      <div><label>Status</label><select class="input" id="e-status">${STATUSES.map(s=>`<option value="${s.id}" ${draft.status===s.id?'selected':''}>${s.label}</option>`).join('')}</select></div>
       <div><label>Brand</label><input class="input" id="e-brand" value="${esc(draft.brand)}" placeholder="Apple"></div>
       <div><label>Model</label><input class="input" id="e-model" value="${esc(draft.model)}" placeholder="iPhone 14 Pro"></div>
       <div><label>Serial / IMEI</label><input class="input" id="e-serial" value="${esc(draft.serial)}"></div>
@@ -283,7 +257,8 @@ function renderEditor(){
       <div><label>Sale Fees</label><input class="input" id="e-fees" type="number" step="0.01" value="${esc(draft.saleFees)}" placeholder="0"></div>
       <div><label>Labor Hours</label><input class="input" id="e-hours" type="number" step="0.1" min="0" value="${esc(draft.laborHours)}"></div>
       <div><label>Labor Rate / Hour</label><input class="input" id="e-rate" type="number" step="0.01" min="0" value="${esc(draft.laborRate)}" placeholder="${state.settings.laborRate}"></div>
-      <div class="full" id="waiting-field" style="${draft.status==='waiting'?'':'display:none'}"><label>Waiting For</label><input class="input" id="e-waiting" value="${esc(draft.waitingFor)}" placeholder="Back glass, battery, supplier…"></div>
+      <label class="full wait-toggle"><input type="checkbox" id="e-waiting-check" ${draft.waiting?'checked':''} onchange="toggleWaitingField(this.checked)"><span><strong>Waiting</strong><small>Parts, supplier, customer reply, or another blocker</small></span></label>
+      <div class="full" id="waiting-for-wrap" style="${draft.waiting?'':'display:none'}"><label>Waiting For</label><input class="input" id="e-waiting" value="${esc(draft.waitingFor)}" placeholder="Back glass, battery, supplier..."></div>
     </div>
     ${editorEconomics()}
     <div class="form-section">
@@ -455,7 +430,7 @@ function openSettings(){
       <div><label>Default labor rate / hour</label><input class="input" id="set-rate" type="number" step="0.01" value="${esc(state.settings.laborRate)}"></div>
     </div>
     <div class="helper" style="margin-top:8px">These are defaults only. Each device can override labor rate when needed.</div>
-    <div class="modal-foot"><div class="two"><button class="btn" onclick="clearActivity()">Clear activity</button><button class="btn" onclick="restoreLegacy()">Restore old backup</button></div><div class="two"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveSettings()">Save</button></div></div>
+    <div class="modal-foot"><div class="two"><button class="btn" onclick="clearActivity()">Clear activity</button></div><div class="two"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveSettings()">Save</button></div></div>
   </div>`;
   ov.onclick=closeModal;
 }
@@ -467,13 +442,6 @@ function saveSettings(){
 function clearActivity(){
   if(!confirm('Clear the activity feed?'))return;
   state.activity=[];save();openSettings();render();
-}
-function restoreLegacy(){
-  const raw=localStorage.getItem(LEGACY)||localStorage.getItem('wb_data');
-  if(!raw){alert('No legacy backup found.');return}
-  if(!confirm('This will replace the current simplified devices with the old Workbench repair/listing data. Continue?'))return;
-  try{state.devices=migrateLegacy(JSON.parse(raw));log('Restored legacy data into the simplified board.','system');save();closeModal();render();toast('Legacy data restored')}
-  catch(e){alert('Legacy backup could not be restored.')}
 }
 
 load();render();

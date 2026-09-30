@@ -101,12 +101,6 @@ Storage limit: browsers allow roughly 5–10 MB of localStorage. If you store ma
 
 ---
 
-## Screenshots
-
-> Add your own screenshots to the `screenshots/` folder and link them here.
-
----
-
 ## Contributing
 
 Contributions are welcome. If you find a bug or want to suggest a feature:
@@ -115,31 +109,6 @@ Contributions are welcome. If you find a bug or want to suggest a feature:
 2. Fork the repo and create a branch
 3. Make your changes to `WorkbenchCRM.html`
 4. Open a pull request
-
-Since the entire app is a single HTML file, changes are straightforward to review and test. Just open the file in a browser.
-
----
-
-## Stack
-
-| Layer | Technology |
-|---|---|
-| UI | Vanilla HTML/CSS/JS — zero frameworks |
-| Icons | [Tabler Icons](https://tabler.io/icons) (CDN) |
-| Fonts | [IBM Plex Sans & Mono](https://fonts.google.com/specimen/IBM+Plex+Sans) (CDN) |
-| Storage | Browser `localStorage` |
-| Build | None — single file |
-
----
-
-## Roadmap ideas
-
-- [ ] Multi-device sync via a lightweight backend or Cloudflare Worker
-- [ ] Supplier contact book
-- [ ] Recurring repair templates
-- [ ] Barcode / QR code scanning for serial numbers
-- [ ] Email / SMS notification hooks
-- [ ] Dark-mode PDF invoice export
 
 ---
 
